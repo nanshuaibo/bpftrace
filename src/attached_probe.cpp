@@ -28,6 +28,7 @@
 #include "util/cpus.h"
 #include "util/exceptions.h"
 #include "util/kernel.h"
+#include "util/perf_event_monitor.h"
 #include "util/symbols.h"
 
 namespace bpftrace {
@@ -939,6 +940,7 @@ Result<std::unique_ptr<AttachedProfileProbe>> AttachedProfileProbe::make(
       break;
     }
 
+    util::PerfEventMonitor::instance().register_cpu(cpu);
     links.push_back(link);
   }
 
@@ -1029,6 +1031,7 @@ Result<std::unique_ptr<AttachedIntervalProbe>> AttachedIntervalProbe::make(
     return make_error<AttachError>();
   }
 
+  util::PerfEventMonitor::instance().register_cpu(cpu);
   return std::unique_ptr<AttachedIntervalProbe>(
       new AttachedIntervalProbe(probe, link));
 }
@@ -1109,6 +1112,7 @@ Result<std::unique_ptr<AttachedSoftwareProbe>> AttachedSoftwareProbe::make(
       break;
     }
 
+    util::PerfEventMonitor::instance().register_cpu(cpu);
     links.push_back(link);
   }
 
@@ -1201,6 +1205,7 @@ Result<std::unique_ptr<AttachedHardwareProbe>> AttachedHardwareProbe::make(
       break;
     }
 
+    util::PerfEventMonitor::instance().register_cpu(cpu);
     links.push_back(link);
   }
 
@@ -1448,6 +1453,7 @@ Result<std::unique_ptr<AttachedWatchpointProbe>> AttachedWatchpointProbe::make(
       break;
     }
 
+    util::PerfEventMonitor::instance().register_cpu(cpu);
     links.push_back(link);
   }
 

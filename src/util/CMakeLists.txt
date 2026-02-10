@@ -12,6 +12,7 @@ add_library(util STATIC
   memfd.cpp
   opaque.cpp
   paths.cpp
+  perf_event_monitor.cpp
   result.cpp
   strings.cpp
   symbols.cpp

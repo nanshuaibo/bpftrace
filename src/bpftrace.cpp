@@ -51,6 +51,7 @@
 #include "util/cgroup.h"
 #include "util/kernel.h"
 #include "util/paths.h"
+#include "util/perf_event_monitor.h"
 #include "util/strings.h"
 #include "util/system.h"
 #include "util/wildcard.h"
@@ -778,6 +779,9 @@ int BPFtrace::run(output::Output &out,
                  << strerror(-err);
 #endif
 
+  // Start monitoring perf_event fds for CPU hotplug events.
+  util::PerfEventMonitor::instance().start();
+
   if (has_iter_) {
     int err = run_iter();
     if (err)
@@ -795,6 +799,10 @@ int BPFtrace::run(output::Output &out,
     LOG(WARNING) << "Failed to send shutdown notification, ignoring: "
                  << strerror(-err);
 #endif
+
+  // Stop CPU hotplug monitoring before tearing down probes.
+  util::PerfEventMonitor::instance().stop();
+  util::PerfEventMonitor::instance().reset();
 
   attached_probes_.clear();
   // finalize_ and exitsig_recv should be false from now on otherwise
