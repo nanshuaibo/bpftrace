@@ -51,7 +51,7 @@
 #include "util/cgroup.h"
 #include "util/kernel.h"
 #include "util/paths.h"
-#include "util/perf_event_monitor.h"
+
 #include "util/strings.h"
 #include "util/system.h"
 #include "util/wildcard.h"
@@ -317,7 +317,7 @@ Result<std::unique_ptr<AttachedProbe>> BPFtrace::attach_probe(
   std::optional<pid_t> pid = child_ ? std::make_optional(child_->pid())
                                     : this->pid();
 
-  auto ap = AttachedProbe::make(probe, program, pid, safe_mode_);
+  auto ap = AttachedProbe::make(probe, program, pid, *cpu_monitor_, safe_mode_);
   if (!ap) {
     auto missing_probes = config_->missing_probes;
     auto ok = handleErrors(std::move(ap), [&](const AttachError &err) {
@@ -780,7 +780,7 @@ int BPFtrace::run(output::Output &out,
 #endif
 
   // Start monitoring perf_event fds for CPU hotplug events.
-  util::PerfEventMonitor::instance().start();
+  cpu_monitor_->start();
 
   if (has_iter_) {
     int err = run_iter();
@@ -801,8 +801,7 @@ int BPFtrace::run(output::Output &out,
 #endif
 
   // Stop CPU hotplug monitoring before tearing down probes.
-  util::PerfEventMonitor::instance().stop();
-  util::PerfEventMonitor::instance().reset();
+  cpu_monitor_->stop();
 
   attached_probes_.clear();
   // finalize_ and exitsig_recv should be false from now on otherwise

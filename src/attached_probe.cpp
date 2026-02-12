@@ -28,7 +28,7 @@
 #include "util/cpus.h"
 #include "util/exceptions.h"
 #include "util/kernel.h"
-#include "util/perf_event_monitor.h"
+
 #include "util/symbols.h"
 
 namespace bpftrace {
@@ -867,7 +867,8 @@ public:
   static Result<std::unique_ptr<AttachedProfileProbe>> make(
       Probe &probe,
       const BpfProgram &prog,
-      std::optional<int> pid);
+      std::optional<int> pid,
+      util::CPUMonitor &cpu_monitor);
   ~AttachedProfileProbe() override;
 
 private:
@@ -894,7 +895,8 @@ AttachedProfileProbe::~AttachedProfileProbe()
 Result<std::unique_ptr<AttachedProfileProbe>> AttachedProfileProbe::make(
     Probe &probe,
     const BpfProgram &prog,
-    std::optional<int> pid)
+    std::optional<int> pid,
+    util::CPUMonitor &cpu_monitor)
 {
   int group_fd = -1;
 
@@ -940,7 +942,7 @@ Result<std::unique_ptr<AttachedProfileProbe>> AttachedProfileProbe::make(
       break;
     }
 
-    util::PerfEventMonitor::instance().register_cpu(cpu);
+    cpu_monitor.register_cpu(cpu);
     links.push_back(link);
   }
 
@@ -961,7 +963,8 @@ class AttachedIntervalProbe : public AttachedProbe {
 public:
   static Result<std::unique_ptr<AttachedIntervalProbe>> make(
       Probe &probe,
-      const BpfProgram &prog);
+      const BpfProgram &prog,
+      util::CPUMonitor &cpu_monitor);
   ~AttachedIntervalProbe() override;
 
   int link_fd() override;
@@ -991,7 +994,8 @@ int AttachedIntervalProbe::link_fd()
 
 Result<std::unique_ptr<AttachedIntervalProbe>> AttachedIntervalProbe::make(
     Probe &probe,
-    const BpfProgram &prog)
+    const BpfProgram &prog,
+    util::CPUMonitor &cpu_monitor)
 {
   int group_fd = -1;
   int cpu = 0;
@@ -1031,7 +1035,7 @@ Result<std::unique_ptr<AttachedIntervalProbe>> AttachedIntervalProbe::make(
     return make_error<AttachError>();
   }
 
-  util::PerfEventMonitor::instance().register_cpu(cpu);
+  cpu_monitor.register_cpu(cpu);
   return std::unique_ptr<AttachedIntervalProbe>(
       new AttachedIntervalProbe(probe, link));
 }
@@ -1041,7 +1045,8 @@ public:
   static Result<std::unique_ptr<AttachedSoftwareProbe>> make(
       Probe &probe,
       const BpfProgram &prog,
-      std::optional<int> pid);
+      std::optional<int> pid,
+      util::CPUMonitor &cpu_monitor);
   ~AttachedSoftwareProbe() override;
 
 private:
@@ -1069,7 +1074,8 @@ AttachedSoftwareProbe::~AttachedSoftwareProbe()
 Result<std::unique_ptr<AttachedSoftwareProbe>> AttachedSoftwareProbe::make(
     Probe &probe,
     const BpfProgram &prog,
-    std::optional<int> pid)
+    std::optional<int> pid,
+    util::CPUMonitor &cpu_monitor)
 {
   int group_fd = -1;
 
@@ -1112,7 +1118,7 @@ Result<std::unique_ptr<AttachedSoftwareProbe>> AttachedSoftwareProbe::make(
       break;
     }
 
-    util::PerfEventMonitor::instance().register_cpu(cpu);
+    cpu_monitor.register_cpu(cpu);
     links.push_back(link);
   }
 
@@ -1134,7 +1140,8 @@ public:
   static Result<std::unique_ptr<AttachedHardwareProbe>> make(
       Probe &probe,
       const BpfProgram &prog,
-      std::optional<int> pid);
+      std::optional<int> pid,
+      util::CPUMonitor &cpu_monitor);
   ~AttachedHardwareProbe() override;
 
 private:
@@ -1162,7 +1169,8 @@ AttachedHardwareProbe::~AttachedHardwareProbe()
 Result<std::unique_ptr<AttachedHardwareProbe>> AttachedHardwareProbe::make(
     Probe &probe,
     const BpfProgram &prog,
-    std::optional<int> pid)
+    std::optional<int> pid,
+    util::CPUMonitor &cpu_monitor)
 {
   int group_fd = -1;
 
@@ -1205,7 +1213,7 @@ Result<std::unique_ptr<AttachedHardwareProbe>> AttachedHardwareProbe::make(
       break;
     }
 
-    util::PerfEventMonitor::instance().register_cpu(cpu);
+    cpu_monitor.register_cpu(cpu);
     links.push_back(link);
   }
 
@@ -1361,7 +1369,8 @@ public:
       Probe &probe,
       const BpfProgram &prog,
       std::optional<int> pid,
-      const std::string &mode);
+      const std::string &mode,
+      util::CPUMonitor &cpu_monitor);
   ~AttachedWatchpointProbe() override;
 
 private:
@@ -1390,7 +1399,8 @@ Result<std::unique_ptr<AttachedWatchpointProbe>> AttachedWatchpointProbe::make(
     Probe &probe,
     const BpfProgram &prog,
     std::optional<int> pid,
-    const std::string &mode)
+    const std::string &mode,
+    util::CPUMonitor &cpu_monitor)
 {
   struct perf_event_attr attr = {};
   attr.type = PERF_TYPE_BREAKPOINT;
@@ -1453,7 +1463,7 @@ Result<std::unique_ptr<AttachedWatchpointProbe>> AttachedWatchpointProbe::make(
       break;
     }
 
-    util::PerfEventMonitor::instance().register_cpu(cpu);
+    cpu_monitor.register_cpu(cpu);
     links.push_back(link);
   }
 
@@ -1478,6 +1488,7 @@ Result<std::unique_ptr<AttachedProbe>> AttachedProbe::make(
     Probe &probe,
     const BpfProgram &prog,
     std::optional<int> pid,
+    util::CPUMonitor &cpu_monitor,
     bool safe_mode)
 {
   LOG(V1) << "Trying to attach probe: " << probe.name;
@@ -1491,13 +1502,13 @@ Result<std::unique_ptr<AttachedProbe>> AttachedProbe::make(
     case ProbeType::tracepoint:
       return AttachedTracepointProbe::make(probe, prog);
     case ProbeType::profile:
-      return AttachedProfileProbe::make(probe, prog, pid);
+      return AttachedProfileProbe::make(probe, prog, pid, cpu_monitor);
     case ProbeType::interval:
-      return AttachedIntervalProbe::make(probe, prog);
+      return AttachedIntervalProbe::make(probe, prog, cpu_monitor);
     case ProbeType::software:
-      return AttachedSoftwareProbe::make(probe, prog, pid);
+      return AttachedSoftwareProbe::make(probe, prog, pid, cpu_monitor);
     case ProbeType::hardware:
-      return AttachedHardwareProbe::make(probe, prog, pid);
+      return AttachedHardwareProbe::make(probe, prog, pid, cpu_monitor);
     case ProbeType::fentry:
     case ProbeType::fexit:
       return AttachedFentryProbe::make(probe, prog);
@@ -1508,7 +1519,7 @@ Result<std::unique_ptr<AttachedProbe>> AttachedProbe::make(
     case ProbeType::usdt:
       return AttachedUSDTProbe::make(probe, prog, pid);
     case ProbeType::watchpoint:
-      return AttachedWatchpointProbe::make(probe, prog, pid, probe.mode);
+      return AttachedWatchpointProbe::make(probe, prog, pid, probe.mode, cpu_monitor);
     case ProbeType::uprobe:
     case ProbeType::uretprobe:
       if (!probe.funcs.empty()) {

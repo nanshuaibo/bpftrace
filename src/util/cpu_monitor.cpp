@@ -1,4 +1,4 @@
-#include "util/perf_event_monitor.h"
+#include "util/cpu_monitor.h"
 #include "log.h"
 #include <cstring>
 #include <linux/netlink.h>
@@ -10,55 +10,41 @@
 
 namespace bpftrace::util {
 
-PerfEventMonitor &PerfEventMonitor::instance()
-{
-  // Intentionally leak the instance to avoid destruction order issues
-  static PerfEventMonitor *monitor = new PerfEventMonitor();
-  return *monitor;
-}
-
-PerfEventMonitor::PerfEventMonitor()
+CPUMonitor::CPUMonitor()
 {
   event_fd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
   if (event_fd_ < 0) {
-    LOG(ERROR) << "Failed to create eventfd for PerfEventMonitor: " << strerror(errno);
+    LOG(ERROR) << "Failed to create eventfd for CPUMonitor: " << strerror(errno);
   }
+
 }
 
-PerfEventMonitor::~PerfEventMonitor()
+CPUMonitor::~CPUMonitor()
 {
   stop();
   if (event_fd_ >= 0)
     close(event_fd_);
 }
 
-void PerfEventMonitor::register_cpu(int cpu)
+void CPUMonitor::register_cpu(int cpu)
 {
   std::lock_guard<std::mutex> lock(mutex_);
   monitored_cpus_.insert(cpu);
 }
 
-void PerfEventMonitor::start()
+void CPUMonitor::start()
 {
   bool expected = false;
   if (!running_.compare_exchange_strong(expected, true))
     return;
+    
 
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (monitored_cpus_.empty()) {
-      running_ = false;
-      return;
-    }
-  }
-
+  
   // Set up Netlink socket
   netlink_fd_ = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_KOBJECT_UEVENT);
   if (netlink_fd_ < 0) {
     LOG(WARNING) << "Failed to create Netlink socket for CPU hotplug monitoring: "
                  << strerror(errno);
-    // Fallback? For now just return, thread won't do much.
-    // Or we could fallback to polling here if we wanted to be super robust.
   } else {
     struct sockaddr_nl sa;
     memset(&sa, 0, sizeof(sa));
@@ -72,18 +58,21 @@ void PerfEventMonitor::start()
     }
   }
 
-  monitor_thread_ = std::thread(&PerfEventMonitor::monitor_loop, this);
+  monitor_thread_ = std::thread(&CPUMonitor::monitor_loop, this);
 }
 
-void PerfEventMonitor::stop()
+void CPUMonitor::stop()
 {
   if (!running_.exchange(false))
     return;
 
   // Wake up poll()
   uint64_t val = 1;
-  if (event_fd_ >= 0)
-    write(event_fd_, &val, sizeof(val));
+  if (event_fd_ >= 0) {
+    if (write(event_fd_, &val, sizeof(val)) < 0) {
+      // Best effort notification
+    }
+  }
 
   if (monitor_thread_.joinable())
     monitor_thread_.join();
@@ -94,15 +83,7 @@ void PerfEventMonitor::stop()
   }
 }
 
-void PerfEventMonitor::reset()
-{
-  stop();
-  std::lock_guard<std::mutex> lock(mutex_);
-  monitored_cpus_.clear();
-  alerted_cpus_.clear();
-}
-
-void PerfEventMonitor::monitor_loop()
+void CPUMonitor::monitor_loop()
 {
   if (netlink_fd_ < 0) return;
 
@@ -115,11 +96,17 @@ void PerfEventMonitor::monitor_loop()
   char buffer[4096];
 
   while (running_) {
+
+
     int ret = poll(fds, 2, -1); // Infinite timeout, wait for event
     if (ret < 0) break;
 
     if (fds[1].revents & POLLIN) {
       // Stopped via eventfd
+      uint64_t val;
+      if (read(event_fd_, &val, sizeof(val)) < 0) {
+        // Ignore errors, we're stopping anyway
+      }
       break;
     }
 
@@ -132,18 +119,13 @@ void PerfEventMonitor::monitor_loop()
   }
 }
 
-void PerfEventMonitor::handle_uevent(const char *buffer, ssize_t len)
+void CPUMonitor::handle_uevent(const char *buffer, ssize_t len)
 {
   // Netlink messages are a series of null-terminated strings
-  // Format: "add@/devices/..." \0 "ACTION=add" \0 ...
   
   std::string action, subsystem, devpath;
   const char *ptr = buffer;
   const char *end = buffer + len;
-
-  // The first string is typically the header "action@devpath"
-  // We can skip it and look for explicit key=value pairs or parse it directly.
-  // Standard keys: ACTION, SUBSYSTEM, DEVPATH.
 
   while (ptr < end) {
     std::string s(ptr);
@@ -156,8 +138,6 @@ void PerfEventMonitor::handle_uevent(const char *buffer, ssize_t len)
 
   // Filter for CPU offline events
   if (subsystem == "cpu" && action == "offline") {
-    // DEVPATH for CPU is typically /devices/system/cpu/cpuN
-    // We can extract N from the end of devpath
     size_t pos = devpath.rfind("/cpu");
     if (pos != std::string::npos && pos + 4 < devpath.length()) {
       try {

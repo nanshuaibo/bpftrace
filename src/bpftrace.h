@@ -36,6 +36,7 @@
 #include "types.h"
 #include "usyms.h"
 #include "util/cpus.h"
+#include "util/cpu_monitor.h"
 #include "util/kernel.h"
 #include "util/result.h"
 
@@ -104,7 +105,8 @@ public:
         max_cpu_id_(util::get_max_cpu_id()),
         config_(std::move(config)),
         ksyms_(*config_),
-        usyms_(*config_)
+        usyms_(*config_),
+        cpu_monitor_(std::make_unique<util::CPUMonitor>())
   {
   }
   ~BPFtrace() override;
@@ -222,6 +224,7 @@ public:
     }
     return std::nullopt;
   }
+
   int ncpus_;
   int max_cpu_id_;
   std::unique_ptr<Config> config_;
@@ -232,6 +235,7 @@ private:
   Ksyms ksyms_;
   Usyms usyms_;
   std::vector<std::string> params_;
+  std::unique_ptr<util::CPUMonitor> cpu_monitor_;
 
   std::map<std::string, std::unique_ptr<PCAPwriter>> pcap_writers_;
 

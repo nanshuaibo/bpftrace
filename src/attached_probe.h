@@ -8,6 +8,7 @@
 #include "bpfprogram.h"
 #include "btf.h"
 #include "probe_types.h"
+#include "util/cpu_monitor.h"
 #include "util/result.h"
 
 namespace bpftrace {
@@ -33,10 +34,12 @@ private:
 
 class AttachedProbe {
 public:
-  static Result<std::unique_ptr<AttachedProbe>> make(Probe &probe,
-                                                     const BpfProgram &prog,
-                                                     std::optional<int> pid,
-                                                     bool safe_mode = true);
+  static Result<std::unique_ptr<AttachedProbe>> make(
+      Probe &probe,
+      const BpfProgram &prog,
+      std::optional<int> pid,
+      util::CPUMonitor &cpu_monitor,
+      bool safe_mode = true);
   virtual ~AttachedProbe() = default;
   AttachedProbe(const AttachedProbe &) = delete;
   AttachedProbe &operator=(const AttachedProbe &) = delete;
