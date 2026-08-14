@@ -55,6 +55,31 @@ TEST(utils, split_string)
   EXPECT_EQ(split_string("foo-bar", '-'), tokens_foo_bar);
 }
 
+TEST(utils, split_string_quoted)
+{
+  EXPECT_EQ(split_string_quoted(""), std::vector<std::string>{});
+  EXPECT_EQ(split_string_quoted("foo"), std::vector<std::string>{"foo"});
+  EXPECT_EQ(split_string_quoted("foo bar"),
+            (std::vector<std::string>{"foo", "bar"}));
+  EXPECT_EQ(split_string_quoted("  foo   bar  "),
+            (std::vector<std::string>{"foo", "bar"}));
+  // Single quotes group arguments and are stripped.
+  EXPECT_EQ(split_string_quoted("echo 'test test'"),
+            (std::vector<std::string>{"echo", "test test"}));
+  // Double quotes group arguments and are stripped.
+  EXPECT_EQ(split_string_quoted("echo \"test test\""),
+            (std::vector<std::string>{"echo", "test test"}));
+  // Mixed quoting.
+  EXPECT_EQ(split_string_quoted("cmd 'a b' \"c d\" e"),
+            (std::vector<std::string>{"cmd", "a b", "c d", "e"}));
+  // Escaped quote inside double quotes: `\"` becomes a literal quote.
+  EXPECT_EQ(split_string_quoted("cmd \"a\\\"b\""),
+            (std::vector<std::string>{"cmd", "a\"b"}));
+  // Unclosed quote: opening quote is preserved as part of the argument.
+  EXPECT_EQ(split_string_quoted("cmd 'abc"),
+            (std::vector<std::string>{"cmd", "'abc"}));
+}
+
 TEST(utils, split_addrrange_symbol_module)
 {
   std::tuple<std::string, std::string, std::string> tokens_ar_sym = {

@@ -22,6 +22,52 @@ std::vector<std::string> split_string(const std::string &str,
   return elems;
 }
 
+std::vector<std::string> split_string_quoted(const std::string &cmd)
+{
+  std::vector<std::string> elems;
+  std::string current;
+  bool in_single_quotes = false;
+  bool in_double_quotes = false;
+
+  for (size_t i = 0; i < cmd.size(); i++) {
+    char c = cmd[i];
+    if (c == '\\' && in_double_quotes && i + 1 < cmd.size() &&
+        (cmd[i + 1] == '"' || cmd[i + 1] == '\\')) {
+      // Escaped character inside double quotes: keep it literally.
+      current += cmd[i + 1];
+      i++;
+    } else if (c == '\'' && !in_double_quotes) {
+      in_single_quotes = !in_single_quotes;
+      // Quotes are not part of the argument, unless they are unmatched.
+      if (in_single_quotes)
+        continue;
+    } else if (c == '"' && !in_single_quotes) {
+      in_double_quotes = !in_double_quotes;
+      if (in_double_quotes)
+        continue;
+    } else if (c == ' ' && !in_single_quotes && !in_double_quotes) {
+      if (!current.empty()) {
+        elems.push_back(current);
+        current.clear();
+      }
+    } else {
+      current += c;
+    }
+  }
+
+  // Handle a trailing quote that was never closed: keep the opening quote
+  // character as part of the argument to avoid silently dropping data.
+  if (in_single_quotes)
+    current = "'" + current;
+  if (in_double_quotes)
+    current = "\"" + current;
+
+  if (!current.empty())
+    elems.push_back(current);
+
+  return elems;
+}
+
 /// Erase prefix up to the first colon (:) from str and return the prefix
 std::string erase_prefix(std::string &str)
 {

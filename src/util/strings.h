@@ -29,6 +29,11 @@ std::vector<std::string> split_string(const std::string &str,
                                       char delimiter,
                                       bool remove_empty = false);
 
+// Split a shell-like command string into arguments, respecting single and
+// double quotes. Quoted segments are kept as a single argument with the
+// surrounding quotes stripped.
+std::vector<std::string> split_string_quoted(const std::string &cmd);
+
 std::string str_join(const std::vector<std::string> &list,
                      const std::string &delim);
 
