@@ -873,6 +873,16 @@ void TypeChecker::visit(FieldAccess &acc)
     type = type.GetPointeeTy();
   }
 
+  // stats() maps expose count, average and total fields.
+  if (type.IsStatsTy()) {
+    if (acc.field != "count" && acc.field != "average" &&
+        acc.field != "total") {
+      acc.addError() << "stats_t does not contain a field named '"
+                     << acc.field << "'";
+    }
+    return;
+  }
+
   if (!type.IsCTypeTy() && !type.IsTupleTy() && !type.IsRecordTy()) {
     return;
   }

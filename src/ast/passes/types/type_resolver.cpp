@@ -1447,6 +1447,18 @@ void TypeRuleCollector::visit(FieldAccess &acc)
 
         SizedType result_type = CreateNone();
 
+        if (expr_type.IsStatsTy()) {
+          // stats() maps expose count, average and total fields.
+          if (acc.field != "count" && acc.field != "average" &&
+              acc.field != "total") {
+            acc.addError() << "stats_t does not contain a field named '"
+                           << acc.field << "'";
+            return CreateNone();
+          }
+          result_type = CreateInteger(64, expr_type.IsSigned());
+          return result_type;
+        }
+
         if (!expr_type.IsCTypeTy() && !expr_type.IsRecordTy()) {
           acc.addError() << "Can not access field '" << acc.field
                          << "' on expression of type '" << expr_type << "'";

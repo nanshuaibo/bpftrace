@@ -988,6 +988,149 @@ Value *IRBuilderBPF::CreatePerCpuMapAggElems(Map &map,
   return ret_reg;
 }
 
+Value *IRBuilderBPF::CreatePerCpuStatsField(Map &map,
+                                             Value *key,
+                                             const std::string &field,
+                                             const SizedType &type,
+                                             const Location &loc)
+{
+  // Aggregate a stats() map across all CPUs. Each per-CPU value is a
+  // { total, count } pair (same layout as avg). We sum both, then return
+  // the requested field: "count", "total" or "average" (= total / count).
+  const std::string &map_name = map.ident;
+
+  AllocaInst *i = CreateAllocaBPF(getInt64Ty(), "i");
+  AllocaInst *total = CreateAllocaBPF(getInt64Ty(), "stats_total");
+  AllocaInst *count = CreateAllocaBPF(getInt64Ty(), "stats_count");
+
+  CreateStore(getInt64(0), i);
+  CreateStore(getInt64(0), total);
+  CreateStore(getInt64(0), count);
+
+  llvm::Function *parent = GetInsertBlock()->getParent();
+  BasicBlock *while_cond = BasicBlock::Create(module_.getContext(),
+                                              "stats_while_cond",
+                                              parent);
+  BasicBlock *while_body = BasicBlock::Create(module_.getContext(),
+                                              "stats_while_body",
+                                              parent);
+  BasicBlock *while_end = BasicBlock::Create(module_.getContext(),
+                                             "stats_while_end",
+                                             parent);
+  CreateBr(while_cond);
+  SetInsertPoint(while_cond);
+
+  auto *cond = CreateICmp(CmpInst::ICMP_ULT,
+                          CreateLoad(getInt64Ty(), i),
+                          CreateLoad(getInt64Ty(),
+                                     module_.getGlobalVariable(std::string(
+                                         bpftrace::globalvars::NUM_CPUS))),
+                          "stats_num_cpu.cmp");
+  CreateCondBr(cond, while_body, while_end);
+
+  SetInsertPoint(while_body);
+
+  CallInst *call = createPerCpuMapLookup(
+      map_name, key, CreateTrunc(CreateLoad(getInt64Ty(), i), getInt32Ty()));
+
+  llvm::Function *lookup_parent = GetInsertBlock()->getParent();
+  BasicBlock *lookup_success_block = BasicBlock::Create(module_.getContext(),
+                                                        "stats_lookup_success",
+                                                        lookup_parent);
+  BasicBlock *lookup_failure_block = BasicBlock::Create(module_.getContext(),
+                                                        "stats_lookup_failure",
+                                                        lookup_parent);
+  Value *condition = CreateICmpNE(CreateIntCast(call, getPtrTy(), true),
+                                  GetNull(),
+                                  "stats_map_lookup_cond");
+  CreateCondBr(condition, lookup_success_block, lookup_failure_block);
+
+  SetInsertPoint(lookup_success_block);
+
+  createPerCpuAvg(total, count, call, type);
+
+  // ++i;
+  CreateStore(CreateAdd(CreateLoad(getInt64Ty(), i), getInt64(1)), i);
+  CreateBr(while_cond);
+
+  SetInsertPoint(lookup_failure_block);
+
+  // If the CPU is 0 and the map lookup fails it means the key doesn't exist.
+  Value *error_condition = CreateICmpEQ(CreateLoad(getInt64Ty(), i),
+                                        getInt64(0),
+                                        "stats_error_lookup_cond");
+  BasicBlock *error_success_block = BasicBlock::Create(module_.getContext(),
+                                                       "stats_error_success",
+                                                       lookup_parent);
+  BasicBlock *error_failure_block = BasicBlock::Create(module_.getContext(),
+                                                       "stats_error_failure",
+                                                       lookup_parent);
+  CreateCondBr(error_condition, error_success_block, error_failure_block);
+
+  SetInsertPoint(error_success_block);
+  CreateRuntimeError(RuntimeErrorId::HELPER_ERROR,
+                     getInt32(0),
+                     BPF_FUNC_map_lookup_percpu_elem,
+                     loc);
+  CreateBr(while_end);
+
+  SetInsertPoint(error_failure_block);
+  CreateRuntimeError(RuntimeErrorId::CPU_COUNT_MISMATCH, loc);
+  CreateBr(while_end);
+
+  SetInsertPoint(while_end);
+
+  CreateLifetimeEnd(i);
+
+  Value *ret;
+  Value *total_val = CreateLoad(getInt64Ty(), total);
+  Value *count_val = CreateLoad(getInt64Ty(), count);
+  if (field == "count") {
+    ret = count_val;
+  } else if (field == "total") {
+    ret = total_val;
+  } else { // "average"
+    // BPF doesn't support signed division: handle negative totals by
+    // flipping sign, doing unsigned division, then flipping back.
+    AllocaInst *avg = CreateAllocaBPF(getInt64Ty(), "stats_avg");
+    if (type.IsSigned()) {
+      llvm::Function *avg_parent = GetInsertBlock()->getParent();
+      BasicBlock *is_negative_block = BasicBlock::Create(module_.getContext(),
+                                                         "stats_is_negative",
+                                                         avg_parent);
+      BasicBlock *is_positive_block = BasicBlock::Create(module_.getContext(),
+                                                         "stats_is_positive",
+                                                         avg_parent);
+      BasicBlock *merge_block = BasicBlock::Create(module_.getContext(),
+                                                   "stats_avg_merge",
+                                                   avg_parent);
+      Value *is_negative_condition = CreateICmpSLT(
+          total_val, getInt64(0), "stats_is_negative_cond");
+      CreateCondBr(is_negative_condition, is_negative_block, is_positive_block);
+
+      SetInsertPoint(is_negative_block);
+      Value *pos_total = CreateAdd(CreateNot(total_val), getInt64(1));
+      Value *pos_avg = CreateUDiv(pos_total, count_val);
+      CreateStore(CreateNeg(pos_avg), avg);
+      CreateBr(merge_block);
+
+      SetInsertPoint(is_positive_block);
+      CreateStore(CreateUDiv(total_val, count_val), avg);
+      CreateBr(merge_block);
+
+      SetInsertPoint(merge_block);
+      ret = CreateLoad(getInt64Ty(), avg);
+      CreateLifetimeEnd(avg);
+    } else {
+      ret = CreateUDiv(total_val, count_val);
+    }
+  }
+
+  CreateLifetimeEnd(total);
+  CreateLifetimeEnd(count);
+  return ret;
+}
+
 void IRBuilderBPF::createPerCpuSum(AllocaInst *ret,
                                    CallInst *call,
                                    const SizedType &type)

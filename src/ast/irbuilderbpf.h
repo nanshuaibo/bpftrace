@@ -66,6 +66,13 @@ public:
                                  Value *key,
                                  const SizedType &type,
                                  const Location &loc);
+  // Aggregate a stats() map across all CPUs and return the requested field
+  // ("count", "average" or "total").
+  Value *CreatePerCpuStatsField(Map &map,
+                                Value *key,
+                                const std::string &field,
+                                const SizedType &type,
+                                const Location &loc);
   void CreateMapUpdateElem(const std::string &map_ident,
                            Value *key,
                            Value *val,
@@ -317,6 +324,10 @@ private:
                        AllocaInst *count,
                        CallInst *call,
                        const SizedType &type);
+  void createPerCpuStats(AllocaInst *total,
+                         AllocaInst *count,
+                         CallInst *call,
+                         const SizedType &type);
 
   std::map<std::string, StructType *> structs_;
   llvm::Function *preserve_static_offset_ = nullptr;

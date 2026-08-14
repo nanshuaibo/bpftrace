@@ -254,7 +254,8 @@ void ResourceAnalyser::visit(Call &call)
     resources_.join_args_id_map[&call] = resources_.join_args.size();
     resources_.join_args.push_back(delim);
   } else if (call.func == "count" || call.func == "sum" || call.func == "min" ||
-             call.func == "max" || call.func == "avg") {
+             call.func == "max" || call.func == "avg" ||
+             call.func == "stats") {
     resources_.global_vars.add_known(bpftrace::globalvars::NUM_CPUS);
   } else if (call.func == "hist") {
     Map *map = call.vargs.at(0).as<Map>();

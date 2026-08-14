@@ -2627,6 +2627,23 @@ ScopedExpr CodegenLLVM::visit(IfExpr &if_expr)
 ScopedExpr CodegenLLVM::visit(FieldAccess &acc)
 {
   const SizedType &type = type_map_.type(acc.expr);
+
+  // stats() maps expose count, average and total fields. The expression must
+  // be a map access; aggregate the per-CPU values and return the field.
+  if (type.IsStatsTy()) {
+    auto *map_acc = acc.expr.as<MapAccess>();
+    if (!map_acc) {
+      LOG(BUG) << "stats field access requires a map access";
+    }
+    auto scoped_key = getMapKey(*map_acc->map, map_acc->key);
+    Value *value = b_.CreatePerCpuStatsField(*map_acc->map,
+                                             scoped_key.value(),
+                                             acc.field,
+                                             type,
+                                             acc.loc);
+    return ScopedExpr(value, [this, value] { b_.CreateLifetimeEnd(value); });
+  }
+
   auto scoped_arg = visit(acc.expr);
 
   assert(type.IsRecordTy() || type.IsCTypeTy());
